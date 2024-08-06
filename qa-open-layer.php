@@ -119,7 +119,7 @@ class qa_html_theme_layer extends qa_html_theme_base
 				$this->output("@import url('{$path}css/zocial.css');");
 				$this->output('//--></style>');
 			}
-
+      
 			if ($donut) {
 				$this->output('<style type="text/css"><!--');
 				$this->output("@import url('{$path}css/bootstrap-social.css');");
@@ -127,5 +127,4 @@ class qa_html_theme_layer extends qa_html_theme_base
 			}
 		}
 	}
-
 }

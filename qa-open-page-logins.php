@@ -296,6 +296,120 @@ class qa_open_logins_page {
 		return $mylogins;
 	}
 
+	function check_associate($useraccount) {
+		$userid = $useraccount['userid'];
+		$action = null;
+		$key = null;
+
+		if (isset($_REQUEST['provider'])) {
+			$key = trim(strip_tags($_REQUEST['provider']));
+			$action = 'process';
+		} else if( !empty($_REQUEST['hauth_start']) ) {
+			$key = trim(strip_tags($_REQUEST['hauth_start']));
+			$action = 'process';
+
+		} else if( !empty($_REQUEST['hauth_done']) ) {
+			$key = trim(strip_tags($_REQUEST['hauth_done']));
+			$action = 'process';
+
+		} else if( !empty($_GET['link']) ) {
+			$key = trim(strip_tags($_GET['link']));
+			$action = 'login';
+		}
+
+		if($key == null) {
+			return false;
+		}
+
+		$provider = $this->get_ha_provider($key);
+		$source = strtolower($provider);
+
+//		if($action == 'login') {
+			// handle the login
+
+			// after login come back to the same page
+			$loginCallback = qa_path('', array(), qa_opt('site_url'));
+
+			require_once( $this->directory . 'HybridAuth/autoload.php' );
+//						require_once( $this->directory . 'Hybrid/Auth.php' );
+			require_once( $this->directory . 'qa-open-utils.php' );
+
+			// prepare the configuration of HybridAuth
+			$config = $this->get_ha_config($provider, $loginCallback);
+
+			try {
+				// try to login
+				$hybridauth = new Hybrid_Auth( $config );
+				$adapter = $hybridauth->authenticate( $provider );
+
+				// if ok, create/refresh the user account
+				$user = $adapter->getUserProfile();
+
+				$duplicates = 0;
+				if (!empty($user))
+					// prepare some data
+					$ohandle = null;
+					$oemail = null;
+
+					if(empty($user->displayName)) {
+						$ohandle = $provider;
+					} else {
+						$ohandle = preg_replace('/[\\@\\+\\/]/', ' ', $user->displayName);
+					}
+					if (strlen(@$user->email) && $user->emailVerified) { // only if email is confirmed
+						$oemail = $user->email;
+					}
+
+					$duplicate = qa_db_user_login_find_duplicate__open($source, $user->identifier);
+					if( $duplicate == null ) {
+						// simply create a new login
+						qa_db_user_login_sync(true);
+						qa_db_user_login_add($userid, $source, $user->identifier);
+						if($oemail) qa_db_user_login_set__open($source, $user->identifier, 'oemail', $oemail);
+						qa_db_user_login_set__open($source, $user->identifier, 'ohandle', $ohandle);
+						qa_db_user_login_sync(false);
+
+						// now that everything was added, log out to allow for multiple accounts
+						$adapter->logout();
+
+						// redirect to get rid of parameters
+						qa_redirect('logins');
+
+					} else if($duplicate['userid'] == $userid) {
+						// trying to add the same account, just update the email/handle
+						qa_db_user_login_sync(true);
+						if($oemail) qa_db_user_login_set__open($source, $user->identifier, 'oemail', $oemail);
+						qa_db_user_login_set__open($source, $user->identifier, 'ohandle', $ohandle);
+						qa_db_user_login_sync(false);
+
+						// log out to allow for multiple accounts
+						$adapter->logout();
+
+						// redirect to get rid of parameters
+						qa_redirect('logins');
+
+					} else {
+						if(qa_get('confirm') == 2) {
+							return $duplicate;
+						} else {
+							qa_redirect('logins', array('link' => qa_get('link'), 'confirm' => 2));
+						}
+					}
+
+			} catch(Exception $e) {
+				qa_redirect('logins', array('provider' => $provider, 'code' => $e->getCode()));
+			}
+//		}
+
+		// if($action == 'process') {
+		// 	require_once( "Hybrid/Auth.php" );
+		// 	require_once( "Hybrid/Endpoint.php" );
+		// 	Hybrid_Endpoint::process();
+		// }
+
+		return false;
+	}
+
 	/* *** Display functions *** */
 
 	function display_summary(&$qa_content, $useraccount) {
@@ -775,6 +889,45 @@ class qa_open_logins_page {
 				'value' => qa_html(qa_opt("{$key}_app_secret")),
 				'tags' => "NAME=\"{$key}_app_secret_field\"",
 			);
+
+			$docUrl = "https://hybridauth.github.io/hybridauth/userguide/IDProvider_info_{$provider}.html";
+			if($provider == 'Yahoo') {
+				$form['fields'][] = array(
+					'type' => 'static',
+					'label' => 'By default, <strong>' . $provider . '</strong> uses OpenID and does not need any keys, so these fields should ' .
+								'be left blank. However, if you replaced the provider file with the one that uses OAuth, and not OpenID, you ' .
+								'need to provide the app keys. In this case, click on <a href="' . $docUrl . '" target="_blank">' . $docUrl . '</a> ' .
+								'for information on how to get them.',
+				);
+
+			} else {
+				$form['fields'][] = array(
+					'type' => 'static',
+					'label' => 'For information on how to setup your application with <strong>' . $provider . '</strong> ' .
+								'see the <strong>Registering application</strong> section from <a href="' . $docUrl . '" target="_blank">' . $docUrl . '</a>.',
+				);
+			}
+
+			switch ($provider)
+			{
+				case 'Twitter':
+				case 'Live':
+					$form['fields'][] = array(
+						'type' => 'static',
+						'label' => 'Callback URL/Redirect URL (to use when registering your application with ' . $provider . '): <br /><strong>' .
+									qa_opt('site_url') . strtolower($provider) . '.php</strong> (don\'t forget to also copy the file <code>' . strtolower($provider)
+									. '.php</code> from the <code>q2a-open-login</code> folder to the root folder of your q2a installation)',
+					);
+					break;
+
+				default:
+					$form['fields'][] = array(
+						'type' => 'static',
+						'label' => 'Callback URL/Redirect URL (to use when registering your application with ' . $provider . '): <br /><strong>' .
+									qa_opt('site_url') . '?hauth.done=' . $provider . '</strong>',
+					);
+					break;
+			}
 
 			$form['fields'][] = array(
 				'type' => 'static',

@@ -66,9 +66,9 @@ class qa_open_login {
 				if ($_GET['login'] == strtolower($this->provider)) {
 					// Store the provider for the callback event
 					$storage->set('provider', $this->provider);
-					if ($_GET['to'])
+					if ($_GET['to']) {
 						$storage->set('redirect_to', $_GET['to']);
-
+          }
 				} else {
 					$error = $_GET['login'];
 				}
@@ -117,6 +117,9 @@ class qa_open_login {
 					// Now redirects:
 					$topath = $storage->get('redirect_to');
 					$storage->set('redirect_to', null);
+					if (!isset($topath)) {
+						$topath = ''; // redirect to front page
+					}
 
 					if($duplicates > 0) {
 						qa_redirect('logins', array('confirm' => '1', 'to' => $topath));
@@ -136,9 +139,16 @@ class qa_open_login {
 			}
 
 			$storage->set('provider', null);
+      
+			$qry = 'provider=' . $this->provider . '&code=' . $e->getCode();
+			if(strstr($topath, '?') === false) {
+				$topath .= '?' . $qry;
+			} else {
+				$topath .= '&' . $qry;
+			}
 
 			// redirect
-			qa_redirect_raw(qa_opt('site_url'));
+			qa_redirect_raw(qa_opt('site_url') . $topath);
 		}
 
 		return false;
@@ -226,8 +236,9 @@ class qa_open_login {
 			$title = qa_lang_html('main/nav_logout');
 			$text = qa_lang_html('main/nav_logout');
 
-			if (!empty($donut))
+			if (!empty($donut)) {
 				$donut_classes = 'btn-block';
+      }
 
 		} else if($action == 'login') {
 			$topath = qa_get('to'); // lets user switch between login and register without losing destination page
@@ -247,14 +258,26 @@ class qa_open_login {
 				$url .= '&amp;to=' . htmlspecialchars($tourl); // play nice with validators
 			}
 			$classes = "$context action-login $zocial  $css";
-			$text = $title = qa_lang_html_sub('plugin_open/login_using', $provider);
+			$title = qa_lang_html_sub('plugin_open/login_using', $provider);
+			$text = $provider . ' ' . qa_lang_html('main/nav_login');
 
 			if($context != 'menu') {
 				$text = $title;
 			}
 
-			if (!empty($donut))
+		} else if($action == 'link') {
+			$url = qa_path('logins', array('link' => $key), qa_path_to_root()); // build our own url
+			$classes = "$context action-link $zocial $css";
+			$title = qa_lang_html_sub('plugin_open/login_using', $provider);
+			$text = qa_lang_html('main/nav_login');
+
+			if($context != 'menu') {
+				$text = $title;
+			}
+
+			if (!empty($donut)) {
 				$donut_classes = 'btn-block';
+      }
 
 		} else if($action == 'view') {
 			$url = 'javascript://';
@@ -263,8 +286,7 @@ class qa_open_login {
 			$text = $tourl;
 		}
 
-		if (empty($donut))
-		{
+		if (empty($donut)) {
 			$html = <<<HTML
 			<a class="open-login-button context-$classes" title="$title" href="$url" rel="nofollow">$text</a>
 HTML;
